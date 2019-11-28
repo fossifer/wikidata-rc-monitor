@@ -22,6 +22,7 @@ user_re = re.compile(r'^(.*?)（全域账户 \|')
 comment_re = re.compile(r'/\* wbset(description|label|alias)(?:es)?-\w+:\d+\|(.+?) \*/')
 item_re = re.compile(r'(描述|标签|别名) / (yue|wuu|gan|zh(-hans|-hant|-cn|-tw|-hk|-mo|-my|-sg|-classical|-yue|-gan)?)')
 
+edits = 
 
 def normalize_username(username):
     rst = username.replace('_', ' ')
@@ -282,21 +283,34 @@ def start_telegram_loop():
 
 
 def start_event_source_loop():
-    url = 'https://stream.wikimedia.org/v2/stream/recentchange'
-    for event in EventSource(url):
-        if event.event != 'message':
-            continue
+    empty_count = 0
+    while True:
         try:
-            change = json.loads(event.data)
-        except ValueError:
-            logging.warning('Failed to decode the event\n' + event.data)
-            continue
+            url = 'https://stream.wikimedia.org/v2/stream/recentchange'
+            for event in EventSource(url):
+                if event.event != 'message':
+                    continue
+                try:
+                    change = json.loads(event.data)
+                except ValueError:
+                    logging.warning('Failed to decode the event\n' + event.data)
+                    if not event.data.strip():
+                        empty_count = 0
+                        continue
+                    else:
+                        empty_count += 1
+                        if empty_count == 2:
+                            logging.warning('Received 2 empty data. Reconnecting...')
+                            raise KeyboardInterrupt
 
-        # We only need recent changes from wikidata
-        if change['wiki'] != 'wikidatawiki':
-            continue
-
-        handle_rc_item(change)
+                # We only need recent changes from wikidata
+                if change['wiki'] != 'wikidatawiki':
+                    continue
+    
+                handle_rc_item(change)
+        except KeyboardInterrupt as e:
+            logging.warning('(B) %s. Wait 1 second...', e)
+            sleep(1)
 
 
 def main():
