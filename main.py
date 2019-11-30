@@ -22,7 +22,6 @@ user_re = re.compile(r'^(.*?)（全域账户 \|')
 comment_re = re.compile(r'/\* wbset(description|label|alias)(?:es)?-\w+:\d+\|(.+?) \*/')
 item_re = re.compile(r'(描述|标签|别名) / (yue|wuu|gan|zh(-hans|-hant|-cn|-tw|-hk|-mo|-my|-sg|-classical|-yue|-gan)?)')
 
-edits = 
 
 def normalize_username(username):
     rst = username.replace('_', ' ')
@@ -283,7 +282,7 @@ def start_telegram_loop():
 
 
 def start_event_source_loop():
-    empty_count = 0
+    error_count = 0
     while True:
         try:
             url = 'https://stream.wikimedia.org/v2/stream/recentchange'
@@ -295,12 +294,13 @@ def start_event_source_loop():
                 except ValueError:
                     logging.warning('Failed to decode the event\n' + event.data)
                     if not event.data.strip():
-                        empty_count = 0
+                        # empty
+                        error_count = 0
                         continue
                     else:
-                        empty_count += 1
-                        if empty_count == 2:
-                            logging.warning('Received 2 empty data. Reconnecting...')
+                        error_count += 1
+                        if error_count == 2:
+                            logging.warning('Received 2 broken data. Reconnecting...')
                             raise KeyboardInterrupt
 
                 # We only need recent changes from wikidata
@@ -309,7 +309,7 @@ def start_event_source_loop():
     
                 handle_rc_item(change)
         except KeyboardInterrupt as e:
-            logging.warning('(B) %s. Wait 1 second...', e)
+            logging.warning('Exception: %s. Wait 1 second...', e)
             sleep(1)
 
 
