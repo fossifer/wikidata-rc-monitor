@@ -1,4 +1,7 @@
 # Edit this file as you want, then move this file to `config.py`
+import logging
+# Set it to logging.DEBUG to check some debug info
+log_level = logging.INFO
 # The bot token provided by @BotFather
 telegram_token = ''
 # ID of the group in which the bot works

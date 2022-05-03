@@ -3,6 +3,7 @@ import json
 import config
 import logging
 import requests
+import ipaddress
 from bs4 import BeautifulSoup
 from time import sleep
 from sseclient import SSEClient as EventSource
@@ -11,14 +12,14 @@ from telegram.ext import Updater, CommandHandler
 
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                     level=logging.INFO)
+                     level=config.log_level)
 
 # Telegram bot updater
 updater, dispatcher = None, None
 
 whitelist = []
 adminlist = []
-user_re = re.compile(r'^(.*?)（全域账户 \|')
+user_re = re.compile(r'^(.*?)（全域(账户|贡献) \|')
 comment_re = re.compile(r'/\* wbset(description|label|alias)(?:es)?-\w+:\d+\|(.+?) \*/')
 item_re = re.compile(r'(描述|标签|别名) / (yue|wuu|gan|zh(-hans|-hant|-cn|-tw|-hk|-mo|-my|-sg|-classical|-yue|-gan)?)')
 
@@ -148,9 +149,11 @@ def handle_rc_item(item):
 
     def convert_into_str():
         # convert the rc item into string in order to output
+        logging.debug(f'Converting into str: {item}')
         urls = {
             'wikidata': 'https://www.wikidata.org/wiki/',
             'sul': 'https://meta.wikimedia.org/wiki/Special:CentralAuth/',
+            'guc': 'https://guc.toolforge.org/?by=date&user=',
             'zhwiki': 'https://zh.wikipedia.org/wiki/'
         }
         if item.get('custom_label'):
@@ -162,9 +165,20 @@ def handle_rc_item(item):
             if k.startswith('diff_old_'):
                 prop = k[len('diff_old_'):]
                 item['custom_diff'] += f'旧 {prop}：{item[k]}\n新 {prop}：{item["diff_new_"+prop]}\n'
-        return (
+        try:
+           ipaddress.ip_address(item['user'])
+        except ValueError:
+            # Not an ip address
+            gc = urls['sul']
+            gc_text = '全域账户'
+        else:
+            # Is an ip address
+            gc = urls['guc']
+            gc_text = '全域贡献'
+
+        rst = (
             '<a href="{wikidata}Special:Contribs/{user}">{user}</a>'
-            '（<a href="{sul}{user}">全域账户</a> |'
+            '（<a href="{gc}{user}">{gc_text}</a> |'
             ' <a href="{zhwiki}Special:Contribs/{user}">中文维基</a>）'
             '编辑了<a href="{wikidata}{title}">{custom_title}</a>'
             '（<a href="{wikidata}Special:diff/{new_rev}">差异</a> |'
@@ -172,8 +186,10 @@ def handle_rc_item(item):
             ' <a href="{wikidata}{title}?action=history">历史</a>）\n'
             '摘要：{comment}\n'
             '{custom_diff}'
-        ).format(**item, **urls,
+        ).format(**item, **urls, gc=gc, gc_text=gc_text,
             old_rev=item['revision']['old'], new_rev=item['revision']['new'])
+        logging.debug(f'Converted: {rst}')
+        return rst
 
     def fetch_data():
         # fetch additional data including alias, label and description in corresponding language
@@ -254,10 +270,14 @@ def handle_rc_item(item):
         else:  # the logic is 'any'
             will_report = any(map(pattern_match, patterns))
         if will_report:
-            if re.search(r'wbeditentity-update-languages|(restore|undo):0\|\|', item['comment']):
+            logging.debug(f'Will check: {str(item)}')
+            if re.search(r'wbeditentity-update-languages(-short)?|(restore|undo):0\|\|', item['comment']):
+                logging.debug(f'The edit is an undo, try to check the diff')
                 if not get_diff():
+                    logging.debug(f'Do not report this diff')
                     continue
             fetch_data()
+            logging.debug(f'Fetched data of revision {item.get("revision")}')
             # Report the item to the telegram group
             updater.bot.send_message(chat_id=config.telegram_group_id,
                 text=convert_into_str(), parse_mode='HTML', disable_web_page_preview=True)
